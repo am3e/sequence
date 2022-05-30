@@ -1,306 +1,205 @@
-import React, { useState, useCallback, useMemo } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 // import { json } from 'stream/consumers';
 import "./App.css";
-
-interface CardInfo {
-  code: string;
-  image: string;
-  value: string;
-  suit: string;
-  index: number;
-}
-
-interface PlayerInfo {
-  id: number;
-  player_id: string;
-  totalTokens: number;
-  hands: CardInfo[];
-  tokens: number[];
-  completedRows: number;
-}
-
-// prettier-ignore
-const layout = [
-  "S",	"AC",	"KC",	"QC",	"0C",	"9C",	"8C",	"7C",	"6C",	"S",
-  "AD",	"7S",	"8S",	"9S",	"0S",	"QD",	"KS",	"AS",	"5C",	"2S",
-  "KD",	"6S",	"0C",	"9C",	"8C",	"7S",	"6C",	"2D",	"4C",	"3S",
-  "QD",	"5S",	"QC",	"8H",	"7H",	"6H",	"5C",	"3D",	"3C",	"4S",
-  "0D",	"4S",	"KC",	"9H",	"2H",	"5H",	"4C",	"4D",	"2C",	"5S",
-  "9D",	"3S",	"AC",	"0H",	"3H",	"4H",	"3C",	"5D",	"AH",	"6S",
-  "8D",	"2S",	"AD",	"QH",	"KH",	"AH",	"2C",	"6D",	"KH",	"7S",
-  "7D",	"2H",	"KD",	"QD",	"0D",	"9D",	"8D",	"7D",	"QH",	"8S",
-  "6D",	"3H",	"4H",	"5H",	"6H",	"7H",	"8H",	"9H",	"0H",	"9S",
-  "S",	"5D",	"4D",	"3D",	"2D",	"AS",	"KS",	"QS",	"0S",	"S"
-]
-
-const Board = ({
-  handleCardClick,
-  activeCard,
-  players,
-  activePlayer,
-  token,
-  boardTokens,
-  confirmPlayers
-}: {
-  handleCardClick: (boardCard: string, index: number) => void;
-  activeCard: string | null | undefined;
-  players: PlayerInfo[];
-  activePlayer: number;
-  token: number | null;
-  boardTokens: number[];
-  confirmPlayers: boolean;
-}) => {
-  let hand: string[] = [];
-  console.log(activePlayer,'activeplaher')
-  if (confirmPlayers && players && activePlayer >= 0) {
-    const { hands } = players[activePlayer];
-    hands.map((cardS) => hand.push(cardS.code));
-  }
-  console.log(hand,'hand')
-  let boardDiv: any;
-  let boardElements = layout.map((boardCard: string, index: number) => {
-    const active = activeCard === boardCard ? "active" : "";
-    const playedToken = boardTokens[index] !== -1 ? `selected player${boardTokens[index]}` : '' ;
-    const cardFound = hand.find((card) => card === boardCard);
-    console.log('cardFound',cardFound)
-    const inHand =  cardFound || playedToken ? "" : "overlay";
-    const cardToken = cardFound ? `cardToken player${activePlayer+1}` : "";
-    const overlayStyles = `${inHand}`;
-    const tokenStyles = ` ${playedToken}`;
-    const divStyles = `${active} ${cardToken}`;
-    const all = `${active} ${cardToken} ${inHand}`
-
-    //styles
-    //overlay - diasbles cards not in hand
-    //cardtoken - hovers overs cards you can put a token on
-    //selected - after you click
-    //player - displays a color
-    //active - highlights the card in your hand
-
-    if (boardCard === "S") {
-      return (
-        <div key={index} className="setGrid">
-          <div
-            id={boardCard}
-            key={index}
-            className={all}
-            onClick={() => handleCardClick(boardCard, index)}
-          >
-            S
-          </div>
-        </div>
-      );
-    }
-
-    return (
-      <div key={index} className="setGrid">
-        <div
-          id={boardCard}
-          key={index}
-          className={all}
-          onClick={() => handleCardClick(boardCard, index)}
-        >
-          {boardTokens[index] !== -1 && <div className={tokenStyles}>{boardTokens[index]}</div>}
-          {boardTokens[index] === -1 && boardCard}
-        </div>
-      </div>
-    );
-  });
-  boardDiv = <div className="game-board grid">{boardElements}</div>;
-
-  return boardDiv;
-};
+import { Context } from "./Context"
+import Board from "./components/Board"
+import { PlayerInfo, CardInfo } from "./interfaces";
+import {
+  submitUser,
+  submitStart,
+  submitMove,
+} from "./actions"
+ 
+const URL = 'ws://127.0.0.1:8083'
 
 function App() {
-  const [deck, setDeck] = useState("");
-  const [deckArray, setDeckArray] = useState<CardInfo[]>([]);
-  const [numberOfPlayers, setNumberOfPlayers] = useState(2);
+  const { getCardSymbol } = React.useContext(Context)
+  const [user, setUser] = useState<string>()
+  const [userConfirmed, setUserConfirmed] = useState<boolean>(false)
+  const [ws, setWs] = useState<WebSocket>()
+  const [disableBoard, setDisableBoard] = useState<boolean>(false)
+  const [hands, setHands] = useState<CardInfo[]>([])
   const [confirmPlayers, setConfirmPlayers] = useState(false);
   const [players, setPlayers] = useState<PlayerInfo[]>([]);
+  const [playerId, setPlayerId] = useState<number>(0)
   const [activePlayer, setActivePlayer] = useState(0);
-  const [activeCard, setActiveCard] = useState<string | null | undefined>("");
-  const [token, setToken] = useState<number | null>(null);
+  const [activePlayerUsername, setActivePlayerUsername] = useState<string>('');
+  const [winner, setWinner] = useState<string>('');
+  const [winnerArray, setWinnerArray] = useState<CardInfo[]>([])
+  const [activeCard, setActiveCard] = useState<string>("");
+  const [newCard, setNewCard] = useState<number>(-1);
+  const [selectedCard, setSelectedCard] = useState<number>(100);
   const [boardTokens, setBoardTokens] = useState<number[]>(
     new Array(100).fill(-1)
   );
+  
 
+  const confirmUser = () => {
+    setUserConfirmed(true)
+    submitUser(ws, user?user:'')
+  }
 
-  const handleCardClick = useCallback((boardCard, index) => {
-    const activePlayerInfo = players[activePlayer];
-    const { id, hands, tokens } = activePlayerInfo;
-    const card = hands.find((card) => card.code === boardCard);
-    if (card && boardTokens[index] === -1) {
-      tokens.push(index);
-      boardTokens[index] = id;
-      setBoardTokens(boardTokens);
-      setToken(index)
+  const startGame = () => {
+    submitStart(ws, user?user:'')
+  }
 
-      setPlayers(players.map((prevPlayerInfo) => {
-          if (prevPlayerInfo.id === id) {
-            console.log('before',prevPlayerInfo)
-            let newCard : CardInfo[] = drawCard(1)
-            let updateHands : CardInfo[] = hands.filter((card : any) => card.code !== boardCard)
-            updateHands.push(newCard[0])
-            return ({
-              ...prevPlayerInfo,
-              hands: updateHands,
-            })
-          }
-          else return prevPlayerInfo
+  //export to own component
+  const ShowHand = useMemo(
+    () => ({
+      user,
+      hands,
+      playerId
+    }: {
+      user: string | undefined;
+      hands: CardInfo[] | undefined | null;
+      playerId: number;
+    }) => {
+      let cards: any;
+      let value
+      let suit
+      let suitcolor
+      if (hands) {
+        let cardElements = hands.map((card, index) => 
+        {
+          const result = getCardSymbol(card.code)
+          suit = result[0]
+          value = result[1]
+          suitcolor = result[2]
+
+        return (
+          <div
+            key={`${card.index}`}
+            id={`${card.code}`}
+            className={`
+            handCard player${playerId} ${suitcolor}
+            ${newCard === index ? 'newCard' : ''}
+            ${selectedCard === index ? 'selectedCard' : ''}
+            `}
+            onMouseEnter={() => seeCard(card.code)}
+            >{value} {suit}</div>
           
-        }))
+        )});
+        cards = (
+          <div id={`${playerId}`} key={playerId}>
+            <div className="player-display">{cardElements}</div>
+          </div>
+        );
+        return cards;
+      }
 
-      playersTurnUpdate()
+    },
+    [players]
+  );
+
+  const handleCardClick = useCallback((user, boardCard, i) => {
+    console.log(boardTokens, playerId, activePlayer)
+    let cardIndex : number = -1
+    console.log('checking',playerId)
+    const wildcards =['JD', 'JC'];
+    const killcards = [ 'JH', 'JS'];
+    let useKillcard = false
+
+    if (hands && playerId === activePlayer) {
+      hands?.forEach((card, handIndex) => {
+        if (card.code === boardCard && boardTokens[i] === -1) {
+          cardIndex = handIndex
+      }})
+      if (cardIndex === -1) {
+        hands?.forEach((card, handIndex) => {
+          const wildcard = wildcards.find(wildcard => card.code === wildcard)
+          const killcard = killcards.find(killcard => card.code === killcard)
+          if (wildcard && boardTokens[i] === -1) {
+            cardIndex = handIndex
+          } else if (killcard && boardTokens[i] !== playerId && boardTokens[i] !== -1) {
+            cardIndex = handIndex
+            useKillcard = true
+            console.log('kc',cardIndex, useKillcard)
+          }
+        })
+      }
+  
+      if (cardIndex !== -1) {
+        setDisableBoard(true)
+
+        const card = hands[cardIndex];
+        setSelectedCard(cardIndex)
+        submitMove(ws, user, i, card, cardIndex, hands, playerId, useKillcard)
+        setSelectedCard(100)
+      }
     }
+    
 
   }, [players, activePlayer, boardTokens]);
 
-  const seeCard = (cardId: string | null | undefined) => {
+  const seeCard = (cardId: string) => {
     setActiveCard(cardId);
+    setTimeout(() => {setActiveCard('')} , 1000)
   };
 
-  const newDeck = () => {
-    const numberOfDecks = 2;
-    const url = `https://deckofcardsapi.com/api/deck/new/shuffle/?deck_count=${numberOfDecks}`;
-    fetch(url)
-      .then((res) => res.json())
-      .then((decks) => {
-        setDeck(decks.deck_id);
-      });
-  };
-
-  const suits = ['D', 'H', 'C', 'S'];
-  const values = ['2', '3', '4', '5', '6', '7', '8', '9', '0', 'J', 'Q', 'K', 'A'];
-    
-  const createDeck = () => {
-    let index = 0
-    const deck : CardInfo[] = []
-    suits.map(suit => {
-      values.map(value => {
-        deck.push({
-          code: `${value}${suit}`,
-          image: ``,
-          value: value,
-          suit: `${suit}`,
-          index: index,
-        })
-        index++
-        deck.push({
-          code: `${value}${suit}`,
-          image: ``,
-          value: value,
-          suit: `${suit}`,
-          index: index,
-        })
-        index++
-      })
-    })
-
-    for (let i = deck.length - 1; i >= 0; i--) {
-      let j = Math.floor(Math.random() * i)
-      let tmp = deck[i]
-      deck[i] = deck[j]
-      deck[j] = tmp
-    }
-    setDeckArray(deck)
-  }
-    
-
-  const confirmNumberOfPlayers = () => {
-    setConfirmPlayers(true);
-    let playersInfo: PlayerInfo[] = [];
-    for (let i = 0; i < numberOfPlayers; i++) {
-      let cardsPush = drawCard(5);
-      let index = i + 1
-      playersInfo.push({
-        id: index,
-        player_id: `player${index}`,
-        totalTokens: 50,
-        hands: cardsPush,
-        completedRows: 0,
-        tokens: [],
-      });
-    }
-    setPlayers(playersInfo);
-  };
-
-  const playersTurnUpdate = () => {
-    const nextActivePlayer = activePlayer === numberOfPlayers - 1 ? 0 : activePlayer + 1;
-    console.log(numberOfPlayers)
-    console.log(nextActivePlayer,'fdedws')
-    setActivePlayer(nextActivePlayer)
-    console.log(nextActivePlayer)
-  };
-
-  console.log(players,'i')
-
-  const drawCard = (number: number): CardInfo[] => {
-    console.log('drawing card')
-    let cards: CardInfo[] = [];
-    // const numberOfCards = number;
-    // const url = `https://deckofcardsapi.com/api/deck/${deck}/draw/?count=${numberOfCards}`;
-    // fetch(url)
-    //   .then((res) => res.json())
-    //   .then((drawnHands) => {
-    //     const handsDrawn = drawnHands.cards;
-    //     handsDrawn.map(
-    //       (card: CardInfo) =>
-    //         cards.push({
-    //           code: card.code,
-    //           image: card.image,
-    //           value: card.value,
-    //           suit: card.suit,
-    //         })
-    //     );
-    //   });
-
-    const drawnCards = deckArray.splice(0, number)
-    drawnCards.map(card => cards.push(card))
-    setDeckArray(deckArray)
-
-    return cards;
-  };
-
-  const ActiveHand = useMemo(
-    () => () => {
-      if (activePlayer >= players.length) {
-        return null;
+  useEffect(() => {
+    if (!ws) {
+      let ws = new WebSocket(URL)
+      ws.onopen = () => {
+        console.log('WebSocket Connected')
       }
-      const choosePlayer = players[activePlayer];
-      const index = choosePlayer.id;
-      const hands = choosePlayer.hands;
-      let cards: any;
-      let cardElements = hands.map((card) => (
-        // <img
-        //   key={`${card.deckIndex}`}
-        //   id={`${card.code}`}
-        //   className="handCard"
-        //   src={card.image}
-        //   onMouseEnter={() => seeCard(card.code)}
-        //   />
-        <div
-          key={`${card.index}`}
-          id={`${card.code}`}
-          className={` handCard player${index}`}
-          // src={card.image}
-          onMouseEnter={() => seeCard(card.code)}
-          >{card.code}</div>
-        
-      ));
-      cards = (
-        <div id={`${index}`} key={index}>
-          <h2>Player {index}</h2>
-          <div className="player-display">{cardElements}</div>
-        </div>
-      );
-      return cards;
-    },
-    [activePlayer, players]
-  );
 
-  React.useEffect(
-    () => createDeck(),
-    [activeCard, activePlayer, activeCard, players, token]
+      ws.onmessage = async (e) => {
+        // const message = JSON.parse(await e.data.text());
+        const message = JSON.parse( e.data )
+        console.log('onmessage',message)
+        if (message.type === 'userevent') {
+          players.push(message.playerinfo)
+          setPlayers(players)
+        }
+        if (message.type === 'startgame') {
+          setWinner('')
+          setWinnerArray([])
+          const clearBoardTokens = new Array(100).fill(-1)
+          console.log(clearBoardTokens,'clearBoardTokens')
+          setBoardTokens([...clearBoardTokens])
+        }
+        if (message.type === 'playerinfo') {
+          setConfirmPlayers(true)
+          setHands(message.hand)
+          setPlayerId(message.playerIndex)
+          setActivePlayer(message.activePlayer)
+          setActivePlayerUsername(message.activePlayerUsername)
+        }
+        if (message.type === 'playerturn') {
+          setActivePlayer(message.activePlayer)
+          setActivePlayerUsername(message.activePlayerUsername)
+          boardTokens[message.boardIndexChange] = message.boardIndexPlayer
+          setBoardTokens([...boardTokens])
+          if (message.winner !== '') {
+            setWinner(message.winner)
+            setWinnerArray(message.winnerArray)
+            setDisableBoard(true)
+            setTimeout(() => {
+              setConfirmPlayers(false)
+              setHands([])
+              setPlayers([])
+              setPlayerId(0)
+              setUserConfirmed(false)
+            }, 1000)
+            
+          }
+          
+        }
+        if (message.type === 'updatehand') {
+          setHands(message.hand)
+          setNewCard(4)
+          setTimeout(() => setNewCard(-1))
+        }
+        
+      }
+
+      ws.onclose = () => {
+        console.log('WebSocket Disconnected')
+      }
+      setWs(ws);
+    }
+  },
+    [hands, playerId, confirmPlayers, activePlayer, boardTokens]
   );
 
   return (
@@ -311,35 +210,52 @@ function App() {
           activeCard={activeCard}
           boardTokens={boardTokens}
           players={players}
-          token={token}
+          user={user}
+          hands={hands}
           activePlayer={activePlayer}
+          playerId={playerId}
           confirmPlayers={confirmPlayers}
+          disableBoard={disableBoard}
         />
         <div className="player-side">
-          <h1>Sequence Game</h1>
-          {!confirmPlayers && (
-            <input
-              type="number"
-              min="2"
-              max="4"
-              id="numberOfPlayers"
-              name="numberOfPlayers"
-              value={numberOfPlayers}
-              onChange={(e) => setNumberOfPlayers(Number(e.target.value))}
-            />
-          )}
-          {!confirmPlayers && (
+          <h1 className="game-title">Sequence</h1>
+          {!userConfirmed && <label htmlFor="user">
+	          <input
+	            type="text"
+	            id="user"
+	            placeholder="Username"
+	            value={user}
+	            onChange={e => setUser(e.target.value)}
+	          />
+	        </label>}
+          {!userConfirmed && (
             <button
               id="confirmPlayers"
               name="confirmPlayers"
-              onClick={confirmNumberOfPlayers}
+              onClick={confirmUser}
             >
-              Start Game
+              Submit
             </button>
           )}
-          <div className="drawn-hand">
-            <ActiveHand />{" "}
-          </div>
+          
+          {confirmPlayers && <h2>{`${activePlayer === playerId ? 'Your' : activePlayerUsername + `'s`}`} turn</h2>}
+          {confirmPlayers && <div className="drawn-hand">
+            <ShowHand
+              user={user}
+              hands={hands}
+              playerId={playerId}
+             />{" "}
+          </div>}
+          {winner ? <h1 className="winner-text">{winner} won</h1> : ''}
+          {!confirmPlayers && userConfirmed && (
+            <button
+              id="confirmPlayers"
+              name="confirmPlayers"
+              onClick={startGame}
+            >
+              {winner ? 'Play Again' : 'Play Game'}
+            </button>
+          )}
         </div>
       </header>
     </div>
