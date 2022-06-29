@@ -21,10 +21,30 @@
   min-height: 100vh;
   display: flex;
   flex-direction: row;
-  /* align-items: center; */
-  justify-content: center;
-  /* font-size: calc(10px + 2vmin); */
   color: white;
+}
+
+.game {
+  display: flex;
+}
+.player-list {
+  list-style: none;
+  display: flex;
+  margin: 0 0 2em 0;
+  padding: 0;
+  justify-content: center;
+}
+
+.player-item {
+  list-style: none;
+  margin: 0.25em;
+  padding: 0.23em 2em;
+  border-radius: 7px;
+  min-width: 80px;
+}
+
+.player-turn {
+  border: yellow solid 2px;
 }
 
 .App-link {
@@ -48,7 +68,7 @@ img {
   flex-wrap: wrap;
   width: 600px;
   min-width: 600px;
-  height: 100%;
+  height: 0%;
   text-align: center;
   justify-content: center;
   align-items: center;
@@ -64,6 +84,10 @@ img {
   align-items: center;
   justify-content: center;
   flex-direction: row;
+}
+
+#winningRow {
+  background-color: gold;
 }
 
 .grid .setGrid,
@@ -95,7 +119,7 @@ img {
 }
 
 .overlay {
-  background-color: rgb(223, 223, 223, 0.3);
+  background-color: rgba(175, 175, 175, 0.3);
   position: absolute;
   width: 100%;
   top: 0;
@@ -176,6 +200,7 @@ img {
 .player-side {
   margin: 0 auto;
   padding: 0.5em;
+  width: 400px;
 }
 .game-title {
   text-transform: uppercase;
@@ -190,6 +215,21 @@ img {
 }
 .redsuit {
   color: red;
+}
+
+.game-info-title {
+  margin: 0.5em;
+  font-size: 0.65em;
+}
+
+.discarded {
+  display: flex;
+  align-items: center;
+}
+
+.game-info {
+  text-align: left;
+  margin-top: 20%;
 }
 
 div.disableBoard {

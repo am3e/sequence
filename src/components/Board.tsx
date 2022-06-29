@@ -19,35 +19,33 @@ const layout : string[] = [
 const Board = ({
     handleCardClick,
     activeCard,
-    players,
     activePlayer,
     playerId,
     user,
     hands,
     boardTokens,
-    confirmPlayers,
-    disableBoard
+    winnerArray
   }: {
     handleCardClick: (user : string | undefined, boardCard : string, index : number) => void;
     activeCard: string | null | undefined;
-    players: PlayerInfo[];
     activePlayer: number;
     playerId: number;
     user: string | undefined;
     hands: CardInfo[] | null | undefined;
     boardTokens: number[];
-    confirmPlayers: boolean;
-    disableBoard: boolean;
+    winnerArray: number[];
   }) => {
     let hand: string[] = [];
+    console.log('youmajnd', winnerArray)
     const { getCardSymbol } = React.useContext(Context)
     hands && hands.map((cardS) => hand.push(cardS.code)); 
     let boardDiv: any;
     let boardElements = layout.map((boardCard: string, index: number) => {
-        const active = activeCard === boardCard ? "active" : "";
+        const active = activeCard === boardCard  ? "active" : "";
         const playedToken = boardTokens[index] !== -1 ? `selected player${boardTokens[index]}` : '' ;
         const cardFound = hand.find((card) => card === boardCard);
-        const inHand =  cardFound || playedToken ? "" : "overlay";
+        const winningRow = winnerArray.find(winnerIndex => winnerIndex === index)
+        const inHand =  playerId === undefined || cardFound || playedToken || winningRow ? "" : "overlay";
         const cardToken = cardFound ? `cardToken player${playerId}` : "";
         const tokenStyles = ` ${playedToken}`;
         const all = `${active} ${cardToken} ${inHand}`
@@ -57,7 +55,7 @@ const Board = ({
         
         if (boardCard === "S") {
             return (
-            <div key={index} className="setGrid">
+            <div key={index} id={winningRow ? 'winningRow' : ''} className="setGrid">
                 <div
                 id={boardCard}
                 key={index}
@@ -75,10 +73,9 @@ const Board = ({
             value = result[1]
             suitcolor = result[2]
         }
-        console.log(value, suit)
 
         return (
-            <div key={index} className="setGrid">
+            <div key={index} id={winningRow ? 'winningRow' : ''} className="setGrid">
             <div
                 id={boardCard}
                 key={index}

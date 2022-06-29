@@ -15,6 +15,20 @@ export interface PlayerInfo {
     completedRows: number;
   }
 
+  export interface User {
+    name: string;
+    id: string;
+    connections: number;
+  }
+
+  export interface Game {
+    numberOfPlayers: string,
+    players: PlayerInfo[],
+    discardpile: CardInfo[],
+    winner: string,
+    isPlaying: boolean
+  }
+
 //   export interface AppContextInterface {
 //     // name: string;
 //     // author: string;

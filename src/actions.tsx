@@ -1,28 +1,23 @@
 import { CardInfo } from "./interfaces";
+import { nanoid } from 'nanoid'
 
-
-const submitUser = (ws: WebSocket | undefined, msg : string) => {
+const submitUser = (ws: WebSocket, msg : string) => {
     const message = {playerUsername: msg}
-    if (ws){
-      ws.send(JSON.stringify({
-        ...message,
-        type: "userevent"}))
-      // setMessage([message, ...messages])
-      console.log('submitmsg-user',message)
-    }
+    ws.send(JSON.stringify({
+    ...message,
+    id: nanoid(),
+    type: "userevent"}))
+    // setMessage([message, ...messages])
+    console.log('submitmsg-user',message)
   }
   
-const submitStart = (ws: WebSocket | undefined, user: string) => {
-const message = {
-    user: user,
-    message: "",
-    type: "startgame"
-}
-if (ws) {
+const submitJoin = (ws: WebSocket) => {
+    const message = {
+        type: "joingame"
+    }
     ws.send(JSON.stringify({
     ...message
     }))
-}
 }
 
 const submitMove = (
@@ -53,6 +48,6 @@ const message = {
 
 export {
     submitUser,
-    submitStart,
+    submitJoin,
     submitMove,
 }

@@ -1,126 +1,206 @@
 const { default: userEvent } = require('@testing-library/user-event');
+const e = require('express');
 const WebSocket = require('ws');
 
-const wss = new WebSocket.Server({ port: 8083 });
-const game = {}
-game.numberOfPlayers = 0
-game.players = []
-game.discardpile = []
-game.winner = ''
+
+const wss = new WebSocket.Server({ port: 8080 });
+const sequence = {
+    game: {
+        discardpile: [],
+        boardTokens: [],
+        winner: '',
+        deck: [],
+        isPlaying: false,
+        players: [],
+        numberOfPlayers: 0,
+    },
+    nextPlayers: [],
+    users: []
+}
+const {game, users} = sequence;
+
+
 
 wss.on('connection', function connection(ws) {
-    let messages = ''
+
+    ws.send( JSON.stringify({
+        type: "game",
+        game,
+    }));
+
+    ws.send( JSON.stringify({
+        type: "users",
+        users: users.map(user => ({                    
+            name: user.name,
+            id: user.id,
+            connections: user.webSockets.length
+        }))
+    }));
+    
+    ws.on("close", function() {
+        users.forEach(user => {
+            user.webSockets = user.webSockets.filter(webSocket => webSocket !== ws )
+        });
+        //todo: remove user if zero websockets and not playing
+    });
 
     ws.on('message', function incoming(data) {
         const parsedData = JSON.parse(data)
         if (parsedData.type === "userevent") {
-            
-            existingPlayer = game.players.find(player => player.ws === ws)
-            if (!existingPlayer) {
-                const playerIndex = game.players.length+1
-                const playerInformation = addPlayerInfo(playerIndex, parsedData.playerUsername, ws)
-                game.players.push(playerInformation)
-                game.numberOfPlayers = game.numberOfPlayers + 1
+            const existingUser = users.find(user => user.id === parsedData.id)
+            if (!existingUser) {
+                const newUser = {
+                    name: parsedData.playerUsername,
+                    id: parsedData.id,
+                    webSockets: [ws]
+                };
+                users.push(newUser);
+                ws.user = newUser;
+            } else {
+                existingUser.webSockets.push(ws);
             }
-        }
-        if ( parsedData.type === "startgame") {
-            game.deck = createDeck()
-            game.boardTokens = new Array(100).fill(-1)
-            console.log('startgame/newgame',game)
-            const activePlayer = game.players[0].id
-            const activePlayerUsername = game.players[0].userName
-            console.log('activePlayer', activePlayer)
-            game.players.map(player => {
-                player.ws.send(JSON.stringify( {message: "begin", type: "startgame"} ))
-                player.ws.send( JSON.stringify({
-                    type: "playerinfo",
-                    hand: drawCard(game.deck, 5),
-                    user: player.userName,
-                    playerIndex: player.id,
-                    activePlayer: activePlayer,
-                    activePlayerUsername: activePlayerUsername,
-                }));
-
+            console.log('usersss', users)
+            users.map(user => {
+                const messages = []
+                messages.push({
+                    type: "userevent",
+                    username: user.name,
+                    userid: user.id
+                })
+                sendMessages(user.id, messages)
             })
+        }
+        if ( parsedData.type === "joingame") {
+            const {nextPlayers} = sequence;
+            console.log('joingame', parsedData)
+            console.log(nextPlayers)
+            if (nextPlayers.length < 2 && !game.isPlaying) {
+
+                const playerIndex = nextPlayers.length+1
+                const playerInformation = addPlayerInfo(playerIndex, ws.user.name, ws.user.id)
+                nextPlayers.push(playerInformation)
+
+                if (nextPlayers.length === 2) {
+                    game.players = nextPlayers;
+                    sequence.nextPlayers = [];
+                    game.numberOfPlayers = 2
+                    console.log('startgame/newgame',game)
+                    const activePlayer = game.players[0].id
+                    const activePlayerUsername = game.players[0].userName
+                    console.log('activePlayer', activePlayer)
+                    game.deck = createDeck()
+                    game.boardTokens = new Array(100).fill(-1)
+                    game.isPlaying = true
+                    game.players.map(player => {
+                        sendMessages(player.userId, [
+                            {
+                                type: "startgame",
+                                game,
+                            },
+                            {
+                                type: "playerinfo",
+                                hand: drawCard(game.deck, 7),
+                                user: player.userId,
+                                players: game.players,
+                                playerIndex: player.id,
+                                activePlayer: activePlayer,
+                                activePlayerUsername: activePlayerUsername,
+                            }
+                        ])
+                    })
+                }
+            }
         }
         if ( parsedData.type === "playerturn") {
             const activePlayerIndex = game.players.findIndex(player => player.id === parsedData.playerId)
             const currentHand = parsedData.hand
             const newCard = drawCard(game.deck, 1)
-            const discardCard = parsedData.cardIndex
+            const discardCard = currentHand[parsedData.cardIndex]
             const updateHands = currentHand
-            updateHands.splice(discardCard,1)
+            updateHands.splice(parsedData.cardIndex,1)
             updateHands.push(newCard[0])
+            game.players[activePlayerIndex].totalTokens = game.players[activePlayerIndex].totalTokens - 1
+            console.log(game, game.players, activePlayerIndex)
 
             const nextActivePlayer = activePlayerIndex === game.numberOfPlayers - 1 ? 0 : activePlayerIndex + 1;
             const activePlayer = game.players[nextActivePlayer].id
             const activePlayerUsername = game.players[nextActivePlayer].userName
-            console.log('1', game.boardTokens[parsedData.boardindex], parsedData.useKillcard, parsedData.boardindex)
             const boardTokenBoardIndex = parsedData.useKillcard ? -1 : parsedData.playerId
             game.boardTokens[parsedData.boardindex] = boardTokenBoardIndex
-            console.log('2', game.boardTokens[parsedData.boardindex])
 
-            game.discardpile.push(parsedData.card)
+            game.discardpile.push(discardCard)
             const winnerArray = checkWinner(game.boardTokens, parsedData.playerId)
             const winnerUsername = winnerArray ? game.players[activePlayerIndex].userName : ''
             game.winner = winnerUsername
+            game.isPlaying = winnerUsername == '';
 
+            console.log(game.deck.length,'decklength')
             game.players.map((player, index) => {
+                const messages = [];
                 if (index === activePlayerIndex) {
-                    player.ws.send(JSON.stringify({
-                        type: "updatehand",
-                        hand: updateHands,
-                        user: player.userName,
-                        playerIndex: player.id,
-                    }))
+                    messages.push( 
+                        {
+                            type: "updatehand",
+                            hand: updateHands,
+                            user: player.userName,
+                            playerIndex: player.id,
+                            remainingTokens: player.totalTokens,
+                        }
+                    ); 
                 }
-                player.ws.send(JSON.stringify({
+                messages.push( {
                     type: "playerturn",
                     activePlayer: activePlayer,
                     activePlayerUsername: activePlayerUsername,
                     boardIndexChange: parsedData.boardindex,
                     boardIndexPlayer: boardTokenBoardIndex,
-                    discarded: parsedData.card,
+                    discarded: discardCard,
+                    remainingCards: game.deck.length,
                     winner: winnerUsername,
                     winnerArray: winnerArray,
-                }))
+                })                
+                sendMessages(player.userId, messages);
                 if (game.winner !== '') {
                     game.discardpile = []
                     game.boardTokens = []
                     game.winner = ''
                     game.deck = []
+                    game.isPlaying = false
+                    game.players = []
+                    game.numberOfPlayers = 0
                 }
+            })
+            users.map(user => {
+                const messages = [];
+                messages.push( {
+                    type: "playerturn",
+                    activePlayer: activePlayer,
+                    activePlayerUsername: activePlayerUsername,
+                    boardIndexChange: parsedData.boardindex,
+                    boardIndexPlayer: boardTokenBoardIndex,
+                    discarded: discardCard,
+                    remainingCards: game.deck.length,
+                    winner: winnerUsername,
+                    winnerArray: winnerArray,
+                })                
+                sendMessages(user.id, messages);
             })
 
         }
 
-        wss.clients.forEach(function each(client) {
-            //excludes sending when client is itself
-            // if (client !== ws && client.readyState === WebSocket.OPEN) {
-            if (client.readyState === WebSocket.OPEN) {
-                // console.log(data.toString())
-                // console.log('hm', parsedData.type)
-                client.send(JSON.stringify(messages))
-
-                
-                // if ( parsedData.type === "submitdeck") {
-                //     console.log('something went there')
-                //     client.send(data)
-                //     console.log('submitdeck data',data.toString())
-                // }
-                // console.log('nothing')
-                
-            }
-        })
     })
 })
 
-//need to know what happens when the client says a state change occured
-// first need to know if client has joined a game, how many joined a game - done
-// then need to know if client wants to start a game.. - done
-//server needs to hold state of the cards deck array and the discared deck array too - kinda done
-//the client validates if the card can be used as it is already completed
-//then the server updates everyone's board/boardtoken array and checks if there is a winner to end the game and which player's turn it is
+const sendMessages = (userId, messages) => {
+    const user = users.find(user => user.id === userId)
+    if (user) {
+        messages.forEach(message => user.webSockets.forEach(webSocket => {
+            webSocket.send( JSON.stringify(message));
+        }))
+    } else {
+        console.error(`user not found ${userId}`)
+    }
+}
 
 const suits = ['D', 'H', 'C', 'S'];
 const values = ['2', '3', '4', '5', '6', '7', '8', '9', '0', 'J', 'Q', 'K', 'A'];
@@ -158,14 +238,14 @@ const createDeck = () => {
     return deck
 }
 
-const addPlayerInfo = (playerId, user, ws) => {
+const addPlayerInfo = (playerId, name, userId) => {
     let playersInfo= {
-        userName: user,
+        userName: name,
+        userId,
         id: playerId,
         player_id: `player${playerId}`,
         totalTokens: 50,
-        completedRows: 0,
-        ws
+        completedRows: 0
     };
     return playersInfo
 };
